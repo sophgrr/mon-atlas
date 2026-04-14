@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mon Atlas Personnel</title>
+
+<!-- PWA -->
+<link rel="manifest" href="/mon-atlas/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mon Atlas">
+<link rel="apple-touch-icon" href="/mon-atlas/icons/icon-192.png">
+<meta name="theme-color" content="#1a1a2e">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=DM+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --ink: #1a1a2e;
+    --paper: #f5f0e8;
+    --aged: #e8e0cc;
+    --gold: #c9a84c;
+    --gold-light: #e8c97a;
+    --visited: #2d6a4f;
+    --visited-light: #52b788;
+    --ocean: #b8d4e8;
+    --ocean-deep: #7fb3d3;
+    --border: #8b7355;
+    --accent: #c0392b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--ink);
+    color: var(--paper);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  header {
+    background: var(--ink);
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(201,168,76,0.3);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: var(--gold);
+    letter-spacing: -0.5px;
+    line-height: 1;
+  }
+
+  .logo span {
+    font-size: 0.65rem;
+    color: rgba(245,240,232,0.5);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 300;
+  }
+
+  .stats-header .count {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--gold);
+    line-height: 1;
+    text-align: right;
+  }
+
+  .stats-header .label {
+    font-size: 0.6rem;
+    color: rgba(245,240,232,0.4);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+
+  .tabs {
+    display: flex;
+    background: rgba(255,255,255,0.05);
+    margin: 12px 16px;
+    border-radius: 12px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 8px;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: rgba(245,240,232,0.4);
+    cursor: pointer;
+    border-radius: 10px;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .tab.active {
+    background: var(--gold);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .map-container {
+    background: var(--ocean);
+    position: relative;
+    overflow: hidden;
+    touch-action: none;
+    height: calc(100vw * 0.55);
+    min-height: 220px;
+    max-height: 380px;
+  }
+
+  .map-container svg { width: 100%; height: 100%; display: block; }
+
+  .country-path { stroke: var(--ink); stroke-width: 0.4; cursor: pointer; transition: filter 0.15s; }
+  .country-path.unvisited { fill: var(--aged); }
+  .country-path.visited { fill: var(--visited); }
+  .country-path:active { filter: brightness(1.2); }
+
+  .map-hint {
+    position: absolute;
+    bottom: 8px;
+    right: 10px;
+    font-size: 0.6rem;
+    color: rgba(26,26,46,0.5);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    align-items: center;
+  }
+
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.7rem; color: rgba(245,240,232,0.6); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+  .legend-dot.visited { background: var(--visited); }
+  .legend-dot.unvisited { background: var(--aged); }
+
+  .tooltip {
+    position: fixed;
+    background: var(--ink);
+    border: 1px solid var(--gold);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    z-index: 200;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    max-width: 200px;
+  }
+
+  .tooltip .t-name { font-family: 'Playfair Display', serif; font-weight: 700; color: var(--gold); font-size: 0.95rem; }
+  .tooltip .t-status { font-size: 0.7rem; color: rgba(245,240,232,0.5); margin-top: 2px; }
+  .tooltip .t-action { margin-top: 6px; font-size: 0.7rem; color: var(--gold-light); font-style: italic; }
+
+  .search-bar { padding: 10px 16px; }
+
+  .search-input {
+    width: 100%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(201,168,76,0.2);
+    border-radius: 10px;
+    padding: 10px 14px;
+    color: var(--paper);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .search-input::placeholder { color: rgba(245,240,232,0.3); }
+  .search-input:focus { border-color: var(--gold); }
+
+  .filter-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 0 16px 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filter-tabs::-webkit-scrollbar { display: none; }
+
+  .filter-btn {
+    flex-shrink: 0;
+    padding: 5px 12px;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid rgba(201,168,76,0.25);
+    color: rgba(245,240,232,0.5);
+    background: transparent;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .filter-btn.active {
+    background: rgba(201,168,76,0.15);
+    border-color: var(--gold);
+    color: var(--gold);
+  }
+
+  .countries-list {
+    overflow-y: auto;
+    height: calc(100vh - 240px);
+    padding: 0 16px 80px;
+  }
+
+  .continent-group { margin-bottom: 8px; }
+
+  .continent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0 6px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(201,168,76,0.15);
+    margin-bottom: 4px;
+  }
+
+  .continent-name { font-family: 'Playfair Display', serif; font-size: 0.85rem; color: var(--gold); font-weight: 700; letter-spacing: 0.5px; }
+  .continent-count { font-size: 0.65rem; color: rgba(245,240,232,0.35); letter-spacing: 1px; }
+
+  .country-item {
+    display: flex;
+    align-items: center;
+    padding: 9px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    gap: 10px;
+    transition: background 0.15s;
+    border-radius: 8px;
+  }
+
+  .country-item:active { background: rgba(255,255,255,0.04); }
+
+  .country-flag { font-size: 1.3rem; line-height: 1; width: 24px; text-align: center; flex-shrink: 0; }
+  .country-info { flex: 1; min-width: 0; }
+  .country-name { font-size: 0.85rem; font-weight: 500; color: var(--paper); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .country-sub { font-size: 0.65rem; color: rgba(245,240,232,0.3); margin-top: 1px; }
+
+  .visit-toggle {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1.5px solid rgba(201,168,76,0.25);
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+    color: white;
+  }
+
+  .visit-toggle.visited { background: var(--visited); border-color: var(--visited); }
+
+  .bottom-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, var(--ink) 70%, transparent);
+    padding: 16px 20px 24px;
+    display: flex;
+    justify-content: space-around;
+    z-index: 50;
+  }
+
+  .stat-pill { text-align: center; }
+  .stat-pill .val { font-family: 'Playfair Display', serif; font-size: 1.2rem; font-weight: 700; color: var(--gold); line-height: 1; }
+  .stat-pill .lbl { font-size: 0.58rem; color: rgba(245,240,232,0.35); text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <h1>Mon Atlas</h1>
+    <span>Personnel</span>
+  </div>
+  <div class="stats-header">
+    <div class="count" id="visited-count">0</div>
+    <div class="label">pays visités</div>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('map')">🗺 Carte</div>
+  <div class="tab" onclick="showTab('list')">📋 Liste</div>
+</div>
+
+<div id="map-view">
+  <div class="map-container" id="map-container">
+    <svg id="world-map"></svg>
+    <div class="map-hint">Appuie pour marquer</div>
+  </div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot visited"></div> Visité</div>
+    <div class="legend-item"><div class="legend-dot unvisited"></div> Non visité</div>
+    <div class="legend-item" style="margin-left:auto;font-size:0.65rem;color:rgba(245,240,232,0.3);" id="pct-label"></div>
+  </div>
+  <div class="search-bar">
+    <input class="search-input" type="text" placeholder="🔍 Rechercher un pays..." oninput="renderMapList(this.value)" id="map-search">
+  </div>
+  <div class="countries-list" id="map-country-list" style="height:calc(100vh - 430px);"></div>
+</div>
+
+<div id="list-view" style="display:none;">
+  <div class="search-bar">
+    <input class="search-input" type="text" placeholder="🔍 Rechercher un pays..." oninput="renderList(this.value)" id="list-search">
+  </div>
+  <div class="filter-tabs" id="filter-tabs"></div>
+  <div class="countries-list" id="country-list"></div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<div class="bottom-bar">
+  <div class="stat-pill"><div class="val" id="stat-visited">0</div><div class="lbl">Visités</div></div>
+  <div class="stat-pill"><div class="val" id="stat-remaining">195</div><div class="lbl">Restants</div></div>
+  <div class="stat-pill"><div class="val" id="stat-pct">0%</div><div class="lbl">Du monde</div></div>
+</div>
+
+<script>
+const COUNTRIES = [
+  {id:"ALB",name:"Albanie",continent:"Europe",flag:"🇦🇱"},
+  {id:"AND",name:"Andorre",continent:"Europe",flag:"🇦🇩"},
+  {id:"AUT",name:"Autriche",continent:"Europe",flag:"🇦🇹"},
+  {id:"BLR",name:"Biélorussie",continent:"Europe",flag:"🇧🇾"},
+  {id:"BEL",name:"Belgique",continent:"Europe",flag:"🇧🇪"},
+  {id:"BIH",name:"Bosnie-Herzégovine",continent:"Europe",flag:"🇧🇦"},
+  {id:"BGR",name:"Bulgarie",continent:"Europe",flag:"🇧🇬"},
+  {id:"HRV",name:"Croatie",continent:"Europe",flag:"🇭🇷"},
+  {id:"CYP",name:"Chypre",continent:"Europe",flag:"🇨🇾"},
+  {id:"CZE",name:"République Tchèque",continent:"Europe",flag:"🇨🇿"},
+  {id:"DNK",name:"Danemark",continent:"Europe",flag:"🇩🇰"},
+  {id:"EST",name:"Estonie",continent:"Europe",flag:"🇪🇪"},
+  {id:"FIN",name:"Finlande",continent:"Europe",flag:"🇫🇮"},
+  {id:"FRA",name:"France",continent:"Europe",flag:"🇫🇷"},
+  {id:"DEU",name:"Allemagne",continent:"Europe",flag:"🇩🇪"},
+  {id:"GRC",name:"Grèce",continent:"Europe",flag:"🇬🇷"},
+  {id:"HUN",name:"Hongrie",continent:"Europe",flag:"🇭🇺"},
+  {id:"ISL",name:"Islande",continent:"Europe",flag:"🇮🇸"},
+  {id:"IRL",name:"Irlande",continent:"Europe",flag:"🇮🇪"},
+  {id:"ITA",name:"Italie",continent:"Europe",flag:"🇮🇹"},
+  {id:"XKX",name:"Kosovo",continent:"Europe",flag:"🇽🇰"},
+  {id:"LVA",name:"Lettonie",continent:"Europe",flag:"🇱🇻"},
+  {id:"LIE",name:"Liechtenstein",continent:"Europe",flag:"🇱🇮"},
+  {id:"LTU",name:"Lituanie",continent:"Europe",flag:"🇱🇹"},
+  {id:"LUX",name:"Luxembourg",continent:"Europe",flag:"🇱🇺"},
+  {id:"MLT",name:"Malte",continent:"Europe",flag:"🇲🇹"},
+  {id:"MDA",name:"Moldavie",continent:"Europe",flag:"🇲🇩"},
+  {id:"MCO",name:"Monaco",continent:"Europe",flag:"🇲🇨"},
+  {id:"MNE",name:"Monténégro",continent:"Europe",flag:"🇲🇪"},
+  {id:"NLD",name:"Pays-Bas",continent:"Europe",flag:"🇳🇱"},
+  {id:"MKD",name:"Macédoine du Nord",continent:"Europe",flag:"🇲🇰"},
+  {id:"NOR",name:"Norvège",continent:"Europe",flag:"🇳🇴"},
+  {id:"POL",name:"Pologne",continent:"Europe",flag:"🇵🇱"},
+  {id:"PRT",name:"Portugal",continent:"Europe",flag:"🇵🇹"},
+  {id:"ROU",name:"Roumanie",continent:"Europe",flag:"🇷🇴"},
+  {id:"RUS",name:"Russie",continent:"Europe",flag:"🇷🇺"},
+  {id:"SMR",name:"Saint-Marin",continent:"Europe",flag:"🇸🇲"},
+  {id:"SRB",name:"Serbie",continent:"Europe",flag:"🇷🇸"},
+  {id:"SVK",name:"Slovaquie",continent:"Europe",flag:"🇸🇰"},
+  {id:"SVN",name:"Slovénie",continent:"Europe",flag:"🇸🇮"},
+  {id:"ESP",name:"Espagne",continent:"Europe",flag:"🇪🇸"},
+  {id:"SWE",name:"Suède",continent:"Europe",flag:"🇸🇪"},
+  {id:"CHE",name:"Suisse",continent:"Europe",flag:"🇨🇭"},
+  {id:"UKR",name:"Ukraine",continent:"Europe",flag:"🇺🇦"},
+  {id:"GBR",name:"Royaume-Uni",continent:"Europe",flag:"🇬🇧"},
+  {id:"VAT",name:"Vatican",continent:"Europe",flag:"🇻🇦"},
+  {id:"AFG",name:"Afghanistan",continent:"Asie",flag:"🇦🇫"},
+  {id:"ARM",name:"Arménie",continent:"Asie",flag:"🇦🇲"},
+  {id:"AZE",name:"Azerbaïdjan",continent:"Asie",flag:"🇦🇿"},
+  {id:"BHR",name:"Bahreïn",continent:"Asie",flag:"🇧🇭"},
+  {id:"BGD",name:"Bangladesh",continent:"Asie",flag:"🇧🇩"},
+  {id:"BTN",name:"Bhoutan",continent:"Asie",flag:"🇧🇹"},
+  {id:"BRN",name:"Brunéi",continent:"Asie",flag:"🇧🇳"},
+  {id:"KHM",name:"Cambodge",continent:"Asie",flag:"🇰🇭"},
+  {id:"CHN",name:"Chine",continent:"Asie",flag:"🇨🇳"},
+  {id:"GEO",name:"Géorgie",continent:"Asie",flag:"🇬🇪"},
+  {id:"IND",name:"Inde",continent:"Asie",flag:"🇮🇳"},
+  {id:"IDN",name:"Indonésie",continent:"Asie",flag:"🇮🇩"},
+  {id:"IRN",name:"Iran",continent:"Asie",flag:"🇮🇷"},
+  {id:"IRQ",name:"Irak",continent:"Asie",flag:"🇮🇶"},
+  {id:"ISR",name:"Israël",continent:"Asie",flag:"🇮🇱"},
+  {id:"JPN",name:"Japon",continent:"Asie",flag:"🇯🇵"},
+  {id:"JOR",name:"Jordanie",continent:"Asie",flag:"🇯🇴"},
+  {id:"KAZ",name:"Kazakhstan",continent:"Asie",flag:"🇰🇿"},
+  {id:"PRK",name:"Corée du Nord",continent:"Asie",flag:"🇰🇵"},
+  {id:"KOR",name:"Corée du Sud",continent:"Asie",flag:"🇰🇷"},
+  {id:"KWT",name:"Koweït",continent:"Asie",flag:"🇰🇼"},
+  {id:"KGZ",name:"Kirghizistan",continent:"Asie",flag:"🇰🇬"},
+  {id:"LAO",name:"Laos",continent:"Asie",flag:"🇱🇦"},
+  {id:"LBN",name:"Liban",continent:"Asie",flag:"🇱🇧"},
+  {id:"MYS",name:"Malaisie",continent:"Asie",flag:"🇲🇾"},
+  {id:"MDV",name:"Maldives",continent:"Asie",flag:"🇲🇻"},
+  {id:"MNG",name:"Mongolie",continent:"Asie",flag:"🇲🇳"},
+  {id:"MMR",name:"Myanmar",continent:"Asie",flag:"🇲🇲"},
+  {id:"NPL",name:"Népal",continent:"Asie",flag:"🇳🇵"},
+  {id:"OMN",name:"Oman",continent:"Asie",flag:"🇴🇲"},
+  {id:"PAK",name:"Pakistan",continent:"Asie",flag:"🇵🇰"},
+  {id:"PHL",name:"Philippines",continent:"Asie",flag:"🇵🇭"},
+  {id:"QAT",name:"Qatar",continent:"Asie",flag:"🇶🇦"},
+  {id:"SAU",name:"Arabie Saoudite",continent:"Asie",flag:"🇸🇦"},
+  {id:"SGP",name:"Singapour",continent:"Asie",flag:"🇸🇬"},
+  {id:"LKA",name:"Sri Lanka",continent:"Asie",flag:"🇱🇰"},
+  {id:"SYR",name:"Syrie",continent:"Asie",flag:"🇸🇾"},
+  {id:"TWN",name:"Taïwan",continent:"Asie",flag:"🇹🇼"},
+  {id:"TJK",name:"Tadjikistan",continent:"Asie",flag:"🇹🇯"},
+  {id:"THA",name:"Thaïlande",continent:"Asie",flag:"🇹🇭"},
+  {id:"TLS",name:"Timor-Leste",continent:"Asie",flag:"🇹🇱"},
+  {id:"TUR",name:"Turquie",continent:"Asie",flag:"🇹🇷"},
+  {id:"TKM",name:"Turkménistan",continent:"Asie",flag:"🇹🇲"},
+  {id:"ARE",name:"Émirats Arabes Unis",continent:"Asie",flag:"🇦🇪"},
+  {id:"UZB",name:"Ouzbékistan",continent:"Asie",flag:"🇺🇿"},
+  {id:"VNM",name:"Viêt Nam",continent:"Asie",flag:"🇻🇳"},
+  {id:"YEM",name:"Yémen",continent:"Asie",flag:"🇾🇪"},
+  {id:"DZA",name:"Algérie",continent:"Afrique",flag:"🇩🇿"},
+  {id:"AGO",name:"Angola",continent:"Afrique",flag:"🇦🇴"},
+  {id:"BEN",name:"Bénin",continent:"Afrique",flag:"🇧🇯"},
+  {id:"BWA",name:"Botswana",continent:"Afrique",flag:"🇧🇼"},
+  {id:"BFA",name:"Burkina Faso",continent:"Afrique",flag:"🇧🇫"},
+  {id:"BDI",name:"Burundi",continent:"Afrique",flag:"🇧🇮"},
+  {id:"CPV",name:"Cap-Vert",continent:"Afrique",flag:"🇨🇻"},
+  {id:"CMR",name:"Cameroun",continent:"Afrique",flag:"🇨🇲"},
+  {id:"CAF",name:"Rép. Centrafricaine",continent:"Afrique",flag:"🇨🇫"},
+  {id:"TCD",name:"Tchad",continent:"Afrique",flag:"🇹🇩"},
+  {id:"COM",name:"Comores",continent:"Afrique",flag:"🇰🇲"},
+  {id:"COD",name:"Congo (RDC)",continent:"Afrique",flag:"🇨🇩"},
+  {id:"COG",name:"Congo",continent:"Afrique",flag:"🇨🇬"},
+  {id:"CIV",name:"Côte d'Ivoire",continent:"Afrique",flag:"🇨🇮"},
+  {id:"DJI",name:"Djibouti",continent:"Afrique",flag:"🇩🇯"},
+  {id:"EGY",name:"Égypte",continent:"Afrique",flag:"🇪🇬"},
+  {id:"GNQ",name:"Guinée Équatoriale",continent:"Afrique",flag:"🇬🇶"},
+  {id:"ERI",name:"Érythrée",continent:"Afrique",flag:"🇪🇷"},
+  {id:"SWZ",name:"Eswatini",continent:"Afrique",flag:"🇸🇿"},
+  {id:"ETH",name:"Éthiopie",continent:"Afrique",flag:"🇪🇹"},
+  {id:"GAB",name:"Gabon",continent:"Afrique",flag:"🇬🇦"},
+  {id:"GMB",name:"Gambie",continent:"Afrique",flag:"🇬🇲"},
+  {id:"GHA",name:"Ghana",continent:"Afrique",flag:"🇬🇭"},
+  {id:"GIN",name:"Guinée",continent:"Afrique",flag:"🇬🇳"},
+  {id:"GNB",name:"Guinée-Bissau",continent:"Afrique",flag:"🇬🇼"},
+  {id:"KEN",name:"Kenya",continent:"Afrique",flag:"🇰🇪"},
+  {id:"LSO",name:"Lesotho",continent:"Afrique",flag:"🇱🇸"},
+  {id:"LBR",name:"Libéria",continent:"Afrique",flag:"🇱🇷"},
+  {id:"LBY",name:"Libye",continent:"Afrique",flag:"🇱🇾"},
+  {id:"MDG",name:"Madagascar",continent:"Afrique",flag:"🇲🇬"},
+  {id:"MWI",name:"Malawi",continent:"Afrique",flag:"🇲🇼"},
+  {id:"MLI",name:"Mali",continent:"Afrique",flag:"🇲🇱"},
+  {id:"MRT",name:"Mauritanie",continent:"Afrique",flag:"🇲🇷"},
+  {id:"MUS",name:"Maurice",continent:"Afrique",flag:"🇲🇺"},
+  {id:"MAR",name:"Maroc",continent:"Afrique",flag:"🇲🇦"},
+  {id:"MOZ",name:"Mozambique",continent:"Afrique",flag:"🇲🇿"},
+  {id:"NAM",name:"Namibie",continent:"Afrique",flag:"🇳🇦"},
+  {id:"NER",name:"Niger",continent:"Afrique",flag:"🇳🇪"},
+  {id:"NGA",name:"Nigéria",continent:"Afrique",flag:"🇳🇬"},
+  {id:"RWA",name:"Rwanda",continent:"Afrique",flag:"🇷🇼"},
+  {id:"STP",name:"São Tomé-et-Príncipe",continent:"Afrique",flag:"🇸🇹"},
+  {id:"SEN",name:"Sénégal",continent:"Afrique",flag:"🇸🇳"},
+  {id:"SLE",name:"Sierra Leone",continent:"Afrique",flag:"🇸🇱"},
+  {id:"SOM",name:"Somalie",continent:"Afrique",flag:"🇸🇴"},
+  {id:"ZAF",name:"Afrique du Sud",continent:"Afrique",flag:"🇿🇦"},
+  {id:"SSD",name:"Soudan du Sud",continent:"Afrique",flag:"🇸🇸"},
+  {id:"SDN",name:"Soudan",continent:"Afrique",flag:"🇸🇩"},
+  {id:"TZA",name:"Tanzanie",continent:"Afrique",flag:"🇹🇿"},
+  {id:"TGO",name:"Togo",continent:"Afrique",flag:"🇹🇬"},
+  {id:"TUN",name:"Tunisie",continent:"Afrique",flag:"🇹🇳"},
+  {id:"UGA",name:"Ouganda",continent:"Afrique",flag:"🇺🇬"},
+  {id:"ZMB",name:"Zambie",continent:"Afrique",flag:"🇿🇲"},
+  {id:"ZWE",name:"Zimbabwe",continent:"Afrique",flag:"🇿🇼"},
+  {id:"ATG",name:"Antigua-et-Barbuda",continent:"Amériques",flag:"🇦🇬"},
+  {id:"ARG",name:"Argentine",continent:"Amériques",flag:"🇦🇷"},
+  {id:"BHS",name:"Bahamas",continent:"Amériques",flag:"🇧🇸"},
+  {id:"BRB",name:"Barbade",continent:"Amériques",flag:"🇧🇧"},
+  {id:"BLZ",name:"Belize",continent:"Amériques",flag:"🇧🇿"},
+  {id:"BOL",name:"Bolivie",continent:"Amériques",flag:"🇧🇴"},
+  {id:"BRA",name:"Brésil",continent:"Amériques",flag:"🇧🇷"},
+  {id:"CAN",name:"Canada",continent:"Amériques",flag:"🇨🇦"},
+  {id:"CHL",name:"Chili",continent:"Amériques",flag:"🇨🇱"},
+  {id:"COL",name:"Colombie",continent:"Amériques",flag:"🇨🇴"},
+  {id:"CRI",name:"Costa Rica",continent:"Amériques",flag:"🇨🇷"},
+  {id:"CUB",name:"Cuba",continent:"Amériques",flag:"🇨🇺"},
+  {id:"DMA",name:"Dominique",continent:"Amériques",flag:"🇩🇲"},
+  {id:"DOM",name:"Rép. Dominicaine",continent:"Amériques",flag:"🇩🇴"},
+  {id:"ECU",name:"Équateur",continent:"Amériques",flag:"🇪🇨"},
+  {id:"SLV",name:"Salvador",continent:"Amériques",flag:"🇸🇻"},
+  {id:"GRD",name:"Grenade",continent:"Amériques",flag:"🇬🇩"},
+  {id:"GTM",name:"Guatemala",continent:"Amériques",flag:"🇬🇹"},
+  {id:"GUY",name:"Guyana",continent:"Amériques",flag:"🇬🇾"},
+  {id:"HTI",name:"Haïti",continent:"Amériques",flag:"🇭🇹"},
+  {id:"HND",name:"Honduras",continent:"Amériques",flag:"🇭🇳"},
+  {id:"JAM",name:"Jamaïque",continent:"Amériques",flag:"🇯🇲"},
+  {id:"MEX",name:"Mexique",continent:"Amériques",flag:"🇲🇽"},
+  {id:"NIC",name:"Nicaragua",continent:"Amériques",flag:"🇳🇮"},
+  {id:"PAN",name:"Panama",continent:"Amériques",flag:"🇵🇦"},
+  {id:"PRY",name:"Paraguay",continent:"Amériques",flag:"🇵🇾"},
+  {id:"PER",name:"Pérou",continent:"Amériques",flag:"🇵🇪"},
+  {id:"KNA",name:"Saint-Kitts-et-Nevis",continent:"Amériques",flag:"🇰🇳"},
+  {id:"LCA",name:"Sainte-Lucie",continent:"Amériques",flag:"🇱🇨"},
+  {id:"VCT",name:"Saint-Vincent",continent:"Amériques",flag:"🇻🇨"},
+  {id:"SUR",name:"Suriname",continent:"Amériques",flag:"🇸🇷"},
+  {id:"TTO",name:"Trinité-et-Tobago",continent:"Amériques",flag:"🇹🇹"},
+  {id:"USA",name:"États-Unis",continent:"Amériques",flag:"🇺🇸"},
+  {id:"URY",name:"Uruguay",continent:"Amériques",flag:"🇺🇾"},
+  {id:"VEN",name:"Venezuela",continent:"Amériques",flag:"🇻🇪"},
+  {id:"AUS",name:"Australie",continent:"Océanie",flag:"🇦🇺"},
+  {id:"FJI",name:"Fidji",continent:"Océanie",flag:"🇫🇯"},
+  {id:"KIR",name:"Kiribati",continent:"Océanie",flag:"🇰🇮"},
+  {id:"MHL",name:"Marshall",continent:"Océanie",flag:"🇲🇭"},
+  {id:"FSM",name:"Micronésie",continent:"Océanie",flag:"🇫🇲"},
+  {id:"NRU",name:"Nauru",continent:"Océanie",flag:"🇳🇷"},
+  {id:"NZL",name:"Nouvelle-Zélande",continent:"Océanie",flag:"🇳🇿"},
+  {id:"PLW",name:"Palaos",continent:"Océanie",flag:"🇵🇼"},
+  {id:"PNG",name:"Papouasie-Nvl-Guinée",continent:"Océanie",flag:"🇵🇬"},
+  {id:"WSM",name:"Samoa",continent:"Océanie",flag:"🇼🇸"},
+  {id:"SLB",name:"Salomon",continent:"Océanie",flag:"🇸🇧"},
+  {id:"TON",name:"Tonga",continent:"Océanie",flag:"🇹🇴"},
+  {id:"TUV",name:"Tuvalu",continent:"Océanie",flag:"🇹🇻"},
+  {id:"VUT",name:"Vanuatu",continent:"Océanie",flag:"🇻🇺"},
+];
+
+const TOTAL = COUNTRIES.length;
+let visited = new Set(JSON.parse(localStorage.getItem('visited') || '[]'));
+
+function save() { localStorage.setItem('visited', JSON.stringify([...visited])); }
+
+function toggleVisit(id) {
+  if (visited.has(id)) visited.delete(id); else visited.add(id);
+  save();
+  updateStats();
+  const path = document.querySelector(`.country-path[data-id="${id}"]`);
+  if (path) {
+    path.classList.toggle('visited', visited.has(id));
+    path.classList.toggle('unvisited', !visited.has(id));
+  }
+  document.querySelectorAll(`.visit-toggle[data-id="${id}"]`).forEach(btn => {
+    btn.classList.toggle('visited', visited.has(id));
+    btn.textContent = visited.has(id) ? '✓' : '';
+  });
+  document.querySelectorAll(`.country-item[data-id="${id}"] .country-name`).forEach(el => {
+    el.style.color = visited.has(id) ? 'var(--visited-light)' : '';
+  });
+}
+
+function updateStats() {
+  const v = visited.size, pct = Math.round(v / TOTAL * 100);
+  document.getElementById('visited-count').textContent = v;
+  document.getElementById('stat-visited').textContent = v;
+  document.getElementById('stat-remaining').textContent = TOTAL - v;
+  document.getElementById('stat-pct').textContent = pct + '%';
+  document.getElementById('pct-label').textContent = pct + '% du monde';
+}
+
+async function initMap() {
+  const container = document.getElementById('map-container');
+  const W = container.offsetWidth, H = container.offsetHeight;
+  const svg = d3.select('#world-map').attr('viewBox', `0 0 ${W} ${H}`).attr('preserveAspectRatio', 'xMidYMid meet');
+  svg.append('rect').attr('width', W).attr('height', H).attr('fill', '#b8d4e8');
+  const projection = d3.geoNaturalEarth1().scale(W / 6.4).translate([W / 2, H / 2]);
+  const path = d3.geoPath().projection(projection);
+  const numToAlpha = {
+    "004":"AFG","008":"ALB","012":"DZA","024":"AGO","032":"ARG","036":"AUS","040":"AUT","050":"BGD","056":"BEL","064":"BTN","068":"BOL","076":"BRA","100":"BGR","104":"MMR","116":"KHM","120":"CMR","124":"CAN","140":"CAF","144":"LKA","152":"CHL","156":"CHN","170":"COL","188":"CRI","192":"CUB","203":"CZE","204":"BEN","208":"DNK","214":"DOM","218":"ECU","818":"EGY","222":"SLV","231":"ETH","246":"FIN","250":"FRA","266":"GAB","276":"DEU","288":"GHA","300":"GRC","320":"GTM","324":"GIN","332":"HTI","340":"HND","348":"HUN","356":"IND","360":"IDN","364":"IRN","368":"IRQ","372":"IRL","376":"ISR","380":"ITA","388":"JAM","392":"JPN","400":"JOR","398":"KAZ","404":"KEN","408":"PRK","410":"KOR","418":"LAO","422":"LBN","430":"LBR","434":"LBY","450":"MDG","454":"MWI","458":"MYS","484":"MEX","504":"MAR","508":"MOZ","516":"NAM","524":"NPL","528":"NLD","558":"NIC","566":"NGA","578":"NOR","586":"PAK","591":"PAN","598":"PNG","600":"PRY","604":"PER","608":"PHL","616":"POL","620":"PRT","634":"QAT","642":"ROU","643":"RUS","646":"RWA","682":"SAU","686":"SEN","706":"SOM","710":"ZAF","724":"ESP","729":"SDN","752":"SWE","756":"CHE","760":"SYR","762":"TJK","764":"THA","788":"TUN","792":"TUR","800":"UGA","804":"UKR","784":"ARE","826":"GBR","834":"TZA","840":"USA","858":"URY","860":"UZB","862":"VEN","704":"VNM","887":"YEM","894":"ZMB","716":"ZWE","096":"BRN","180":"COD","178":"COG","262":"DJI","232":"ERI","268":"GEO","440":"LTU","442":"LUX","466":"MLI","478":"MRT","496":"MNG","562":"NER","703":"SVK","705":"SVN","740":"SUR","780":"TTO","795":"TKM","807":"MKD"
+  };
+  try {
+    const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+    const countries = topojson.feature(world, world.objects.countries);
+    const borders = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
+    svg.selectAll('.country-path').data(countries.features).join('path')
+      .attr('class', d => { const a = numToAlpha[String(d.id).padStart(3,'0')]; return `country-path ${a && visited.has(a) ? 'visited' : 'unvisited'}`; })
+      .attr('d', path)
+      .attr('data-id', d => numToAlpha[String(d.id).padStart(3,'0')] || '')
+      .on('click', function(event, d) {
+        const a = numToAlpha[String(d.id).padStart(3,'0')];
+        if (!a) return;
+        const c = COUNTRIES.find(x => x.id === a);
+        if (!c) return;
+        toggleVisit(a);
+        showTooltip(event, c);
+      });
+    svg.append('path').datum(borders).attr('fill', 'none').attr('stroke', 'rgba(26,26,46,0.5)').attr('stroke-width', 0.3).attr('d', path);
+  } catch(e) { console.error(e); }
+}
+
+let ttTimer;
+function showTooltip(event, c) {
+  const tt = document.getElementById('tooltip');
+  tt.innerHTML = `<div class="t-name">${c.flag} ${c.name}</div><div class="t-status">${visited.has(c.id)?'✓ Pays visité':'Non visité'}</div><div class="t-action">${visited.has(c.id)?'Appuie pour retirer':'Appuie pour marquer'}</div>`;
+  tt.style.display = 'block';
+  tt.style.left = Math.min(event.clientX + 10, window.innerWidth - 220) + 'px';
+  tt.style.top = Math.min(event.clientY - 60, window.innerHeight - 120) + 'px';
+  clearTimeout(ttTimer);
+  ttTimer = setTimeout(() => { tt.style.display = 'none'; }, 2000);
+}
+
+let activeFilter = 'Tous';
+
+function initFilters() {
+  const ft = document.getElementById('filter-tabs');
+  ["Tous","Visités","Non visités","Europe","Asie","Afrique","Amériques","Océanie"].forEach((f, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn' + (i === 0 ? ' active' : '');
+    btn.textContent = f;
+    btn.onclick = () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = f;
+      renderList(document.getElementById('list-search').value);
+    };
+    ft.appendChild(btn);
+  });
+}
+
+function buildList(containerId, search, filter) {
+  const list = document.getElementById(containerId);
+  const q = (search || '').toLowerCase();
+  const filtered = COUNTRIES.filter(c => {
+    if (q && !c.name.toLowerCase().includes(q)) return false;
+    if (filter === 'Visités') return visited.has(c.id);
+    if (filter === 'Non visités') return !visited.has(c.id);
+    if (["Europe","Asie","Afrique","Amériques","Océanie"].includes(filter)) return c.continent === filter;
+    return true;
+  });
+  const groups = {};
+  filtered.forEach(c => { if (!groups[c.continent]) groups[c.continent] = []; groups[c.continent].push(c); });
+  list.innerHTML = '';
+  ["Europe","Asie","Afrique","Amériques","Océanie"].forEach(cont => {
+    if (!groups[cont]) return;
+    const g = document.createElement('div');
+    g.className = 'continent-group';
+    const vis = groups[cont].filter(c => visited.has(c.id)).length;
+    const uid = containerId + '-' + cont;
+    g.innerHTML = `<div class="continent-header"><span class="continent-name">${cont}</span><span class="continent-count">${vis}/${groups[cont].length}</span></div><div id="${uid}"></div>`;
+    list.appendChild(g);
+    const body = document.getElementById(uid);
+    groups[cont].forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'country-item';
+      item.dataset.id = c.id;
+      item.innerHTML = `<div class="country-flag">${c.flag}</div><div class="country-info"><div class="country-name" style="${visited.has(c.id)?'color:var(--visited-light)':''}">${c.name}</div></div><button class="visit-toggle ${visited.has(c.id)?'visited':''}" data-id="${c.id}" onclick="toggleVisit('${c.id}');buildList('${containerId}',document.getElementById('${containerId==='country-list'?'list':'map'}-search').value,'${containerId==='country-list'?''+activeFilter:'Tous'}')">${visited.has(c.id)?'✓':''}</button>`;
+      body.appendChild(item);
+    });
+  });
+  if (!list.innerHTML) list.innerHTML = '<div style="text-align:center;padding:40px;color:rgba(245,240,232,0.3);font-size:0.85rem;">Aucun résultat</div>';
+}
+
+function renderList(q) { buildList('country-list', q, activeFilter); }
+function renderMapList(q) { buildList('map-country-list', q, 'Tous'); }
+
+function showTab(tab) {
+  document.getElementById('map-view').style.display = tab === 'map' ? 'block' : 'none';
+  document.getElementById('list-view').style.display = tab === 'list' ? 'block' : 'none';
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', (i===0&&tab==='map')||(i===1&&tab==='list')));
+}
+
+// Init
+updateStats();
+initMap();
+initFilters();
+renderList();
+renderMapList();
+
+// Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/mon-atlas/sw.js');
+}
+</script>
+</body>
+</html>
